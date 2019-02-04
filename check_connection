@@ -1,0 +1,61 @@
+#!/bin/bash
+
+check_LAN(){
+    ping -c 4 "$IP"
+}
+check_WAN(){
+    wget -q --tries=10 --timeout=20 --spider gstatic.com/generate_204
+}
+check_WAN_riparti(){
+    wget -q --tries=10 --timeout=20 --spider riparti.ho-mobile.it
+}
+restart_connection(){
+    curl -k -m 5 --anyauth -u "$FRITZUSER:$FRITZPW" http://"$IP":49000"$location" -H 'Content-Type: text/xml; charset="utf-8"' -H "SoapAction:$uri#$action" -d "<?xml version='1.0' encoding='utf-8'?><s:Envelope s:encodingStyle='http://schemas.xmlsoap.org/soap/encoding/' xmlns:s='http://schemas.xmlsoap.org/soap/envelope/'><s:Body><u:$action xmlns:u='$uri'></u:$action></s:Body></s:Envelope>" -s
+}
+user_on(){
+    #return true if session is active
+    loginctl show-session -p Active "$(loginctl list-sessions --no-legend | grep "$1" | awk '{ print $1 }')" | grep yes
+}
+
+IP="fritz.box"
+
+USERS="marco casa"
+
+FRITZUSER="restart"
+FRITZPW="restart1029"
+
+location="/upnp/control/wanpppconn1"
+uri="urn:dslforum-org:service:WANPPPConnection:1"
+action='ForceTermination'
+
+while :
+do
+    if check_LAN; then
+        if check_WAN; then
+            DATE=$(date '+%Y-%m-%d %H:%M:%S')
+            echo "$DATE - Online and Money"
+        else
+            if check_WAN_riparti; then
+                /usr/local/bin/blinkstick --set-color=green  --pulse --repeats=5
+                for USER in "${USERS[@]}"
+                do
+                    if user_on "$USER"; then 
+                        su "$USER" -c 'xdg-open riparti.ho-mobile.it'
+                    fi
+                done
+                DATE=$(date '+%Y-%m-%d %H:%M:%S')
+                echo "$DATE - Online but no Money" >> /tmp/check_connection.log
+            else
+                /usr/local/bin/blinkstick --set-color=red --pulse --repeats=5
+                restart_connection
+                DATE=$(date '+%Y-%m-%d %H:%M:%S')
+                echo "$DATE - Offline WAN" >> /tmp/check_connection.log
+            fi
+        fi
+    else
+        /usr/local/bin/blinkstick --set-color=blue  --pulse --repeats=5
+        DATE=$(date '+%Y-%m-%d %H:%M:%S')
+        echo "$DATE - Offline LAN" >> /tmp/check_connection.log
+    fi
+    sleep 60
+done
